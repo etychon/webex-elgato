@@ -1,5 +1,6 @@
 # webex-elgato
-Use you Elgato Key Light to automatically turn on when in meeting, and off when you're not.
+
+Use this Python script with WebEx to automatically turn on your Elgato Key Light when in a meeting, and off when you're not.
 
 This script uses WebEx API so this works with any device - phone, computer
 or even WebEx DeskPro. 
