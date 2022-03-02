@@ -1,0 +1,5 @@
+# Bot access token (create using WebEx Developer account on DevNet)
+access_token = '...'
+
+# User_id for etychon@cisco.com - get it from WebEx using APIs
+user_id = '...'
