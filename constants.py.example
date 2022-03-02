@@ -1,7 +1,12 @@
-# Bot access token (create using WebEx Developer account on DevNet)
-# Use "Personal Access Token" from here -> https://developer.webex.com/docs/getting-started
-# It says it will expired after 12 hours but it does not for me   
+# Access token (create using WebEx Developer account on DevNet)
+# Use "Personal Access Token" here -> https://developer.webex.com/docs/getting-started
+# It says it will expire after 12 hours but it does not for me
 access_token = '...'
 
-# User_id for etychon@cisco.com - get it from WebEx using APIs
+# your user_id - get it from WebEx using APIs
 user_id = '...'
+
+# your email address for the WebEx login to work
+email = 'user@domain.com'
+
+

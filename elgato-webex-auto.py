@@ -20,8 +20,9 @@ headers = {
   'Authorization': 'Bearer {}'.format(access_token),
   'Content-Type': 'application/json'
 }
+
 params = {
-  'email': 'etychon@cisco.com'
+  'email': constants.email
 }
 
 ### Elgato Specific
