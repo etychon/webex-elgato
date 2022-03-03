@@ -5,7 +5,8 @@ import json
 import time
 import leglight
 import sys
-
+import logging
+import warnings
 import constants
 
 ### Cisco WebEx Specific
@@ -25,10 +26,24 @@ params = {
   'email': constants.email
 }
 
-### Elgato Specific
+### Remove Zeroconf annoying "FutureWarning" and Set log level to info
+warnings.simplefilter(action='ignore', category=FutureWarning)
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
-# Initialize Elgato lib and discover all lights
-allLights = leglight.discover(2)
+### Discover and prepare all Elgato lights with library
+
+allLights = []
+logging.warning('Discovering lights on local network...') 
+while True:
+  # Initialize Elgato lib and discover all lights
+  allLights = leglight.discover(2)
+  if len(allLights)<=0:
+    # None found
+    logging.warning('No light found, will try again later') 
+    time.sleep(10)
+  else:
+    logging.info('Found {} light(s): {}'.format(len(allLights), str(allLights)))
+    break
 
 # Get Elgato current light status
 if (allLights[0].isOn):
@@ -51,7 +66,7 @@ while (True) :
   try:
     res = requests.get(url, headers=headers, params=params)
   except requests.exceptions.RequestException as e:  # This is the correct syntax
-    print("Got an error - wait 10 seconds")
+    logging.info("Got an error - wait 10 seconds")
     time.sleep(10)
     continue
 
@@ -68,7 +83,7 @@ while (True) :
       no_in_meeting_count = 0;
       if (light_on == False):
         # user is in a meeting and light is off - turn light on
-        print ("User is in a meeting -> turn light on")
+        logging.info("User is in a meeting -> turn light on")
         for light in allLights:
           light.on()
         light_on = True
@@ -78,14 +93,14 @@ while (True) :
         # light is on, but user not in a meeting, wait
         no_in_meeting_count = no_in_meeting_count + 1
         if (no_in_meeting_count > 10):
-          # user was not in a meeting for the last 10 API calls, turn off light
-          print ("User is not a meeting -> turn light off")
+          # user was not in a meeting for the last "x" API calls, turn off light
+          logging.info("User is not a meeting -> turn light off")
           for light in allLights:
             light.off()
           light_on = False
 
   except:
-    print('Error, skipping...')
+    logging.info('Error, skipping...')
     
   sys.stdout.write(next(spinner))
   sys.stdout.flush()

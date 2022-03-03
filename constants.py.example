@@ -1,6 +1,12 @@
+<<<<<<< HEAD
 # Access token (create using WebEx Developer account on DevNet)
 # Use "Personal Access Token" here -> https://developer.webex.com/docs/getting-started
 # It says it will expire after 12 hours but it does not for me
+=======
+# Bot access token (create using WebEx Developer account on DevNet)
+# Use "Personal Access Token" from here -> https://developer.webex.com/docs/getting-started
+# It says it will expire after 12 hours but it does not for me   
+>>>>>>> 2b5b9aa131c8dc665bdd5435c54909bad7c437aa
 access_token = '...'
 
 # your user_id - get it from WebEx using APIs
