@@ -5,9 +5,14 @@ import json
 import time
 import leglight
 import sys
-import logging
-import warnings
 import constants
+
+from datetime import datetime
+
+### Log with date
+
+def t_print(*args, **kwargs):
+  print(datetime.now(), *args, **kwargs)
 
 ### Cisco WebEx Specific
 
@@ -21,32 +26,17 @@ headers = {
   'Authorization': 'Bearer {}'.format(access_token),
   'Content-Type': 'application/json'
 }
-
 params = {
-  'email': constants.email
+  'email': 'etychon@cisco.com'
 }
 
-### Remove Zeroconf annoying "FutureWarning" and Set log level to info
-warnings.simplefilter(action='ignore', category=FutureWarning)
-logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
+### Elgato Specific
 
-### Discover and prepare all Elgato lights with library
-
-allLights = []
-logging.warning('Discovering lights on local network...') 
-while True:
-  # Initialize Elgato lib and discover all lights
-  allLights = leglight.discover(2)
-  if len(allLights)<=0:
-    # None found
-    logging.warning('No light found, will try again later') 
-    time.sleep(10)
-  else:
-    logging.info('Found {} light(s): {}'.format(len(allLights), str(allLights)))
-    break
+# Initialize Elgato lib and discover all lights
+allLights = leglight.discover(2)
 
 # Get Elgato current light status
-if (allLights[0].isOn):
+if allLights and allLights[0].isOn :
   light_on = True;
 else:
   light_on = False;
@@ -64,13 +54,17 @@ no_in_meeting_count = 0;
 while (True) :
 
   try:
+    ## res = requests.get(url, headers=headers, params=params)
     res = requests.get(url, headers=headers, params=params)
   except requests.exceptions.RequestException as e:  # This is the correct syntax
-    logging.info("Got an error - wait 10 seconds")
-    time.sleep(10)
+    print("Got an error - wait 10 seconds")
+    time.sleep(60)
     continue
 
-  resj = res.json()
+  try:
+    resj = res.json()
+  except:
+    continue
   
   if ('items' in resj):
     itemsj = resj['items'][0]
@@ -83,28 +77,36 @@ while (True) :
       no_in_meeting_count = 0;
       if (light_on == False):
         # user is in a meeting and light is off - turn light on
-        logging.info("User is in a meeting -> turn light on")
+        allLights = leglight.discover(2)
+        t_print ("User is in a meeting -> turn light on [list: {}]".format(allLights))
         for light in allLights:
           light.on()
         light_on = True
+    if ((itemsj['status'] == "DoNotDisturb")):
+      # user is in "do not disturb" and this replaces "call", "meeting", so don't know
+      # if in a meeting or not. So let's no do anything.
+      pass
     else:
       # user not in a meeting
       if (light_on == True):
         # light is on, but user not in a meeting, wait
         no_in_meeting_count = no_in_meeting_count + 1
         if (no_in_meeting_count > 10):
-          # user was not in a meeting for the last "x" API calls, turn off light
-          logging.info("User is not a meeting -> turn light off")
+          # user was not in a meeting for the last 10 API calls, turn off light
+          allLights = leglight.discover(2)
+          t_print ("User is not a meeting ({}) -> turn light off [list: {}]".format(itemsj['status'], allLights))
           for light in allLights:
             light.off()
           light_on = False
 
   except:
-    logging.info('Error, skipping...')
+    t_print('Error, skipping, wait some time, then re-discover...')
+    time.sleep(60)
+    allLights = leglight.discover(2)
     
   sys.stdout.write(next(spinner))
   sys.stdout.flush()
   sys.stdout.write('\b')  
 
-  time.sleep(2)
+  time.sleep(10)
   
