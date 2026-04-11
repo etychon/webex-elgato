@@ -1,18 +1,14 @@
-<<<<<<< HEAD
-# Access token (create using WebEx Developer account on DevNet)
-# Use "Personal Access Token" here -> https://developer.webex.com/docs/getting-started
-# It says it will expire after 12 hours but it does not for me
-=======
-# Bot access token (create using WebEx Developer account on DevNet)
-# Use "Personal Access Token" from here -> https://developer.webex.com/docs/getting-started
-# It says it will expire after 12 hours but it does not for me   
->>>>>>> 2b5b9aa131c8dc665bdd5435c54909bad7c437aa
-access_token = '...'
+# Copy to constants.py and fill in, or use environment variables (recommended).
+#
+# Environment variables (override these values when set):
+#   WEBEX_ACCESS_TOKEN   Personal access token from https://developer.webex.com/docs/getting-started
+#   WEBEX_EMAIL          Webex sign-in email used for People lookup
+#
+# Optional tuning:
+#   WEBEX_ELGATO_POLL_SECONDS      Default 10
+#   WEBEX_ELGATO_DISCOVER_SECONDS  mDNS discover timeout for Key Light (default 2)
+#   WEBEX_ELGATO_OFF_AFTER_POLLS   Consecutive "not in meeting" polls before turning off (default 3)
 
-# your user_id - get it from WebEx using APIs
-user_id = '...'
+access_token = "..."
 
-# your email address for the WebEx login to work
-email = 'user@domain.com'
-
-
+email = "user@example.com"

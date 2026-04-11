@@ -1,0 +1,32 @@
+# User systemd unit — copy and adjust paths, then install:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/webex-elgato.service.example ~/.config/systemd/user/webex-elgato.service
+#   $EDITOR ~/.config/systemd/user/webex-elgato.service   # set WorkingDirectory + ExecStart
+#   cp systemd/webex-elgato.env.example ~/.config/webex-elgato.env
+#   $EDITOR ~/.config/webex-elgato.env
+#   chmod 600 ~/.config/webex-elgato.env
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now webex-elgato.service
+#   journalctl --user -u webex-elgato.service -f
+#
+# To keep the service running after you log out (optional):
+#   loginctl enable-linger "$USER"
+
+[Unit]
+Description=Webex presence to Elgato Key Light
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change %h/webex-elgato to the directory where this repo lives.
+WorkingDirectory=%h/webex-elgato
+# Use your venv interpreter if you use one, e.g. %h/webex-elgato/.venv/bin/python
+ExecStart=/usr/bin/python3 %h/webex-elgato/elgato-webex-auto.py
+EnvironmentFile=%h/.config/webex-elgato.env
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
