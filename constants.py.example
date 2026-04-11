@@ -1,8 +1,20 @@
 # Copy to constants.py and fill in, or use environment variables (recommended).
 #
-# Environment variables (override these values when set):
-#   WEBEX_ACCESS_TOKEN   Personal access token from https://developer.webex.com/docs/getting-started
-#   WEBEX_EMAIL          Webex sign-in email used for People lookup
+# Required:
+#   access_token   Personal access token from https://developer.webex.com/docs/getting-started
+#
+# Identity (pick ONE — same precedence as env vars: user_id > email > implicit "me"):
+#
+#   A) Omit user_id and email → script calls GET /v1/people/me (token must represent that user).
+#
+#   B) Set user_id (Webex person id from a prior API response) → GET /v1/people/{personId}
+#
+#   C) Set email → GET /v1/people?email=... (list people)
+#
+# Environment variables override these names when set:
+#   WEBEX_ACCESS_TOKEN
+#   WEBEX_PERSON_ID   (same as user_id below)
+#   WEBEX_EMAIL
 #
 # Optional tuning:
 #   WEBEX_ELGATO_POLL_SECONDS      Default 10
@@ -11,4 +23,5 @@
 
 access_token = "..."
 
-email = "user@example.com"
+# user_id = "Y2lzY29zcGFyazovL3VzL1BFT1BMRS8..."  # optional; Webex person id
+# email = "user@example.com"  # optional; list-by-email if user_id unset

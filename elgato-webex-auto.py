@@ -11,6 +11,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from urllib.parse import quote
 
 import requests
 
@@ -35,20 +36,27 @@ def t_print(*args, **kwargs):
 
 
 def load_config():
-    """Prefer environment variables so secrets are not required in a Python file."""
+    """Load token and identity for the People API (see README for modes)."""
     token = os.environ.get("WEBEX_ACCESS_TOKEN")
+    person_id = os.environ.get("WEBEX_PERSON_ID")
     email = os.environ.get("WEBEX_EMAIL")
     if constants is not None:
         token = token or getattr(constants, "access_token", None)
+        person_id = person_id or getattr(constants, "user_id", None)
         email = email or getattr(constants, "email", None)
-    if not token or not email:
+    if not token:
         t_print(
-            "Missing WEBEX_ACCESS_TOKEN or WEBEX_EMAIL "
-            "(or define both in constants.py).",
+            "Missing WEBEX_ACCESS_TOKEN (or access_token in constants.py).",
             file=sys.stderr,
         )
         sys.exit(1)
-    return token, email
+    if person_id:
+        mode = "person_id"
+    elif email:
+        mode = "email"
+    else:
+        mode = "me"
+    return token, mode, person_id, email
 
 
 def discover_lights():
@@ -66,13 +74,20 @@ def spinning_cursor():
             yield cursor
 
 
-def fetch_person_status(client, token, email):
+def fetch_person_status(client, token, mode, person_id, email):
     headers = {
         "Authorization": "Bearer {}".format(token),
         "Content-Type": "application/json",
     }
-    params = {"email": email}
-    res = client.get(PEOPLE_URL, headers=headers, params=params, timeout=30)
+    if mode == "person_id":
+        url = "{}/{}".format(PEOPLE_URL, quote(str(person_id), safe=""))
+        res = client.get(url, headers=headers, timeout=30)
+    elif mode == "email":
+        res = client.get(
+            PEOPLE_URL, headers=headers, params={"email": email}, timeout=30
+        )
+    else:
+        res = client.get("{}/me".format(PEOPLE_URL), headers=headers, timeout=30)
     if res.status_code == 401:
         raise RuntimeError(
             "Webex returned 401: access token expired or invalid; issue a new token."
@@ -88,16 +103,19 @@ def parse_status(payload):
     if not isinstance(payload, dict):
         return None
     items = payload.get("items")
-    if not isinstance(items, list) or not items:
+    if isinstance(items, list) and items:
+        person = items[0]
+        if isinstance(person, dict):
+            return person.get("status")
         return None
-    person = items[0]
-    if not isinstance(person, dict):
-        return None
-    return person.get("status")
+    # GET /people/me or GET /people/{personId}: single person object
+    if "items" not in payload and "status" in payload:
+        return payload.get("status")
+    return None
 
 
 def main():
-    access_token, email = load_config()
+    access_token, identity_mode, person_id, email = load_config()
     client = requests.Session()
 
     all_lights = discover_lights()
@@ -107,7 +125,9 @@ def main():
 
     while True:
         try:
-            resj = fetch_person_status(client, access_token, email)
+            resj = fetch_person_status(
+                client, access_token, identity_mode, person_id, email
+            )
             status = parse_status(resj)
             if status is None:
                 time.sleep(POLL_INTERVAL)

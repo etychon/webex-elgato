@@ -20,10 +20,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Change %h/webex-elgato to the directory where this repo lives.
+# Change every %h/webex-elgato below if this repo lives elsewhere.
 WorkingDirectory=%h/webex-elgato
-# Use your venv interpreter if you use one, e.g. %h/webex-elgato/.venv/bin/python
-ExecStart=/usr/bin/python3 %h/webex-elgato/elgato-webex-auto.py
+# Always use the repo launcher (uses .venv and prints a clear error if deps are missing).
+ExecStart=%h/webex-elgato/run-webex-elgato.sh
 EnvironmentFile=%h/.config/webex-elgato.env
 Restart=on-failure
 RestartSec=30
