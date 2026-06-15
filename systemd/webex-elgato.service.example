@@ -4,11 +4,14 @@
 #   cp systemd/webex-elgato.service.example ~/.config/systemd/user/webex-elgato.service
 #   $EDITOR ~/.config/systemd/user/webex-elgato.service   # set WorkingDirectory + ExecStart
 #   cp systemd/webex-elgato.env.example ~/.config/webex-elgato.env
-#   $EDITOR ~/.config/webex-elgato.env
 #   chmod 600 ~/.config/webex-elgato.env
+#   cd ~/webex-elgato && ./webex-elgato-login.sh setup    # OAuth (recommended)
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now webex-elgato.service
 #   journalctl --user -u webex-elgato.service -f
+#
+# OAuth tokens live in ~/.config/webex-elgato/ — no WEBEX_ACCESS_TOKEN needed after setup.
+# Re-auth when refresh expires: ./webex-elgato-login.sh login && systemctl --user restart webex-elgato.service
 #
 # To keep the service running after you log out (optional):
 #   loginctl enable-linger "$USER"

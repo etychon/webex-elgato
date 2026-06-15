@@ -1,27 +1,31 @@
 # Copy to constants.py and fill in, or use environment variables (recommended).
 #
-# Required:
-#   access_token   Personal access token from https://developer.webex.com/docs/getting-started
+# Authentication (pick ONE approach):
+#
+#   A) OAuth (recommended) — run: ./webex-elgato-login.sh setup
+#      Tokens stored in ~/.config/webex-elgato/; nothing needed here.
+#
+#   B) Personal access token (quick tests, ~12h lifetime):
+#      access_token = "..."   or set WEBEX_ACCESS_TOKEN
 #
 # Identity (pick ONE — same precedence as env vars: user_id > email > implicit "me"):
 #
-#   A) Omit user_id and email → script calls GET /v1/people/me (token must represent that user).
-#
-#   B) Set user_id (Webex person id from a prior API response) → GET /v1/people/{personId}
-#
-#   C) Set email → GET /v1/people?email=... (list people)
+#   Omit user_id and email → GET /v1/people/me (OAuth default).
+#   user_id → GET /v1/people/{personId}
+#   email   → GET /v1/people?email=...
 #
 # Environment variables override these names when set:
 #   WEBEX_ACCESS_TOKEN
 #   WEBEX_PERSON_ID   (same as user_id below)
 #   WEBEX_EMAIL
+#   WEBEX_CLIENT_ID / WEBEX_CLIENT_SECRET  (advanced OAuth override)
 #
 # Optional tuning:
 #   WEBEX_ELGATO_POLL_SECONDS      Default 10
 #   WEBEX_ELGATO_DISCOVER_SECONDS  mDNS discover timeout for Key Light (default 2)
 #   WEBEX_ELGATO_OFF_AFTER_POLLS   Consecutive "not in meeting" polls before turning off (default 3)
 
-access_token = "..."
+# access_token = "..."  # quick test only; use OAuth for always-on hosts
 
 # user_id = "Y2lzY29zcGFyazovL3VzL1BFT1BMRS8..."  # optional; Webex person id
 # email = "user@example.com"  # optional; list-by-email if user_id unset

@@ -6,6 +6,8 @@ Author: Emmanuel Tychon
 SPDX-License-Identifier: MIT
 """
 
+import argparse
+import getpass
 import json
 import os
 import sys
@@ -16,6 +18,19 @@ from urllib.parse import quote
 import requests
 
 from elgato_discover import discover_key_lights
+from webex_oauth import (
+    DEFAULT_OAUTH_SCOPE,
+    PORTAL_CHECKLIST,
+    RELOGIN_HINT,
+    TokenProvider,
+    auth_status_lines,
+    credentials_path,
+    device_login,
+    load_credentials,
+    oauth_scope,
+    save_credentials,
+    tokens_file_exists,
+)
 
 try:
     import constants
@@ -28,6 +43,7 @@ DISCOVER_TIMEOUT = float(os.environ.get("WEBEX_ELGATO_DISCOVER_SECONDS", "2"))
 OFF_AFTER_POLLS = int(os.environ.get("WEBEX_ELGATO_OFF_AFTER_POLLS", "3"))
 MEETING_STATUSES = frozenset({"meeting", "presenting", "call"})
 AMBIGUOUS_STATUSES = frozenset({"DoNotDisturb", "unknown"})
+INTERACTIVE_STDOUT = sys.stdout.isatty()
 
 
 def t_print(*args, **kwargs):
@@ -35,28 +51,73 @@ def t_print(*args, **kwargs):
     print(datetime.now(), *args, **kwargs)
 
 
-def load_config():
-    """Load token and identity for the People API (see README for modes)."""
-    token = os.environ.get("WEBEX_ACCESS_TOKEN")
+def load_identity():
+    """Load person identity for the People API (see README for modes)."""
     person_id = os.environ.get("WEBEX_PERSON_ID")
     email = os.environ.get("WEBEX_EMAIL")
     if constants is not None:
-        token = token or getattr(constants, "access_token", None)
         person_id = person_id or getattr(constants, "user_id", None)
         email = email or getattr(constants, "email", None)
-    if not token:
-        t_print(
-            "Missing WEBEX_ACCESS_TOKEN (or access_token in constants.py).",
-            file=sys.stderr,
-        )
-        sys.exit(1)
     if person_id:
         mode = "person_id"
     elif email:
         mode = "email"
     else:
         mode = "me"
-    return token, mode, person_id, email
+    return mode, person_id, email
+
+
+def _static_pat_token():
+    token = os.environ.get("WEBEX_ACCESS_TOKEN")
+    if constants is not None:
+        token = token or getattr(constants, "access_token", None)
+    return token
+
+
+def resolve_auth():
+    """
+    Return (token_provider, identity_mode, person_id, email).
+
+    token_provider is either a TokenProvider instance (OAuth) or a str (static PAT).
+    OAuth stored tokens take precedence over PAT when both exist.
+    """
+    mode, person_id, email = load_identity()
+    pat = _static_pat_token()
+
+    if tokens_file_exists():
+        provider = TokenProvider()
+        return provider, mode, person_id, email
+
+    if pat:
+        return pat, mode, person_id, email
+
+    client_id, client_secret, _scope = load_credentials()
+    if client_id and client_secret:
+        t_print(
+            "OAuth credentials found but no tokens. Run: ./webex-elgato-login.sh login",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    t_print(
+        "No Webex authentication configured.",
+        file=sys.stderr,
+    )
+    t_print(
+        "  OAuth (recommended): ./webex-elgato-login.sh setup",
+        file=sys.stderr,
+    )
+    t_print(
+        "  Quick test only:     set WEBEX_ACCESS_TOKEN (expires in ~12 hours)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _get_token(auth):
+    if isinstance(auth, TokenProvider):
+        return auth.get_access_token()
+    return auth
 
 
 def discover_lights():
@@ -74,7 +135,8 @@ def spinning_cursor():
             yield cursor
 
 
-def fetch_person_status(client, token, mode, person_id, email):
+def fetch_person_status(client, auth, mode, person_id, email, retried=False):
+    token = _get_token(auth)
     headers = {
         "Authorization": "Bearer {}".format(token),
         "Content-Type": "application/json",
@@ -88,9 +150,17 @@ def fetch_person_status(client, token, mode, person_id, email):
         )
     else:
         res = client.get("{}/me".format(PEOPLE_URL), headers=headers, timeout=30)
+
     if res.status_code == 401:
+        if isinstance(auth, TokenProvider) and not retried:
+            auth.force_refresh()
+            return fetch_person_status(
+                client, auth, mode, person_id, email, retried=True
+            )
         raise RuntimeError(
-            "Webex returned 401: access token expired or invalid; issue a new token."
+            "Webex returned 401: access token expired or invalid; {}".format(
+                RELOGIN_HINT
+            )
         )
     if not res.ok:
         raise RuntimeError(
@@ -108,33 +178,104 @@ def parse_status(payload):
         if isinstance(person, dict):
             return person.get("status")
         return None
-    # GET /people/me or GET /people/{personId}: single person object
     if "items" not in payload and "status" in payload:
         return payload.get("status")
     return None
 
 
-def main():
-    access_token, identity_mode, person_id, email = load_config()
+def _prompt_scope():
+    print("")
+    print("OAuth scope must match EXACTLY one scope enabled on your integration.")
+    print("  spark:all          — recommended (Device Grant sample)")
+    print("  spark:people_read  — minimal, only if spark:all is NOT checked")
+    default = DEFAULT_OAUTH_SCOPE
+    entered = input("Scope [{}]: ".format(default)).strip()
+    return entered or default
+
+
+def _prompt_credentials(scope_override=None):
+    print(PORTAL_CHECKLIST)
+    client_id = input("Client ID: ").strip()
+    if not client_id:
+        print("Client ID is required.", file=sys.stderr)
+        sys.exit(1)
+    client_secret = getpass.getpass("Client Secret: ").strip()
+    if not client_secret:
+        print("Client Secret is required.", file=sys.stderr)
+        sys.exit(1)
+    scope = scope_override or _prompt_scope()
+    return client_id, client_secret, scope
+
+
+def cmd_setup(args):
+    client_id, client_secret, scope = _prompt_credentials(
+        scope_override=getattr(args, "scope", None)
+    )
+    save_credentials(client_id, client_secret, scope)
+    print("Credentials saved to {}".format(credentials_path()))
+    print("Using OAuth scope: {}".format(oauth_scope()))
+    device_login(
+        client_id,
+        client_secret,
+        print_fn=print,
+        scope_locked=bool(getattr(args, "scope", None)),
+    )
+    print("")
+    print("Next: systemctl --user restart webex-elgato.service")
+
+
+def cmd_login(args):
+    scope_arg = getattr(args, "scope", None)
+    client_id, client_secret, saved_scope = load_credentials()
+    if not client_id or not client_secret:
+        client_id, client_secret, scope = _prompt_credentials(
+            scope_override=scope_arg
+        )
+    else:
+        scope = scope_arg or saved_scope or DEFAULT_OAUTH_SCOPE
+    save_credentials(client_id, client_secret, scope)
+    print("Using OAuth scope: {}".format(oauth_scope()))
+    device_login(
+        client_id,
+        client_secret,
+        print_fn=print,
+        scope_locked=bool(scope_arg),
+    )
+    print("")
+    print("Next: systemctl --user restart webex-elgato.service")
+
+
+def cmd_status(_args):
+    for line in auth_status_lines():
+        print(line)
+
+
+def run_monitor():
+    auth, identity_mode, person_id, email = resolve_auth()
     client = requests.Session()
 
     all_lights = discover_lights()
     light_on = initial_light_on(all_lights)
     no_in_meeting_count = 0
     spinner = spinning_cursor()
+    last_logged_status = None
 
     while True:
         try:
             resj = fetch_person_status(
-                client, access_token, identity_mode, person_id, email
+                client, auth, identity_mode, person_id, email
             )
             status = parse_status(resj)
             if status is None:
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            sys.stdout.write("\r")
-            t_print(status, end=" ")
+            if INTERACTIVE_STDOUT:
+                sys.stdout.write("\r")
+                t_print(status, end=" ")
+            elif status != last_logged_status:
+                t_print("presence:", status)
+                last_logged_status = status
 
             if status in MEETING_STATUSES:
                 no_in_meeting_count = 0
@@ -152,7 +293,6 @@ def main():
                     else:
                         t_print("No Key Lights found; will retry next poll.")
             elif status in AMBIGUOUS_STATUSES:
-                # Presence is ambiguous; do not change light or off-counter.
                 pass
             else:
                 if light_on:
@@ -182,12 +322,51 @@ def main():
             all_lights = discover_lights()
             light_on = initial_light_on(all_lights)
 
-        sys.stdout.write(next(spinner))
-        sys.stdout.write("\033[K")
-        sys.stdout.flush()
-        sys.stdout.write("\b")
+        if INTERACTIVE_STDOUT:
+            sys.stdout.write(next(spinner))
+            sys.stdout.write("\033[K")
+            sys.stdout.flush()
+            sys.stdout.write("\b")
 
         time.sleep(POLL_INTERVAL)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Webex presence monitor for Elgato Key Light"
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("run", help="Run the presence monitor (default)")
+    setup_p = sub.add_parser(
+        "setup",
+        help="Interactive OAuth setup: portal checklist, credentials, device login",
+    )
+    setup_p.add_argument(
+        "--scope",
+        help="OAuth scope (must match portal exactly, e.g. spark:all)",
+    )
+    login_p = sub.add_parser(
+        "login",
+        help="Re-run device login (when refresh token expires or is revoked)",
+    )
+    login_p.add_argument(
+        "--scope",
+        help="OAuth scope (must match portal exactly, e.g. spark:people_read)",
+    )
+    sub.add_parser("status", help="Show authentication status and token expiry")
+
+    args = parser.parse_args(argv)
+    command = args.command or "run"
+
+    if command == "setup":
+        cmd_setup(args)
+    elif command == "login":
+        cmd_login(args)
+    elif command == "status":
+        cmd_status(args)
+    else:
+        run_monitor()
 
 
 if __name__ == "__main__":
