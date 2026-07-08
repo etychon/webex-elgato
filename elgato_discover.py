@@ -53,12 +53,11 @@ def discover_key_lights(timeout: float = 5) -> List[LegLight]:
             """Required by zeroconf; service updates do not change our device list."""
             pass
 
-    zeroconf = Zeroconf()
-    try:
-        ServiceBrowser(zeroconf, _ELG_SERVICE, _DiscoveryListener())
-        start = time()
-        while time() - start < timeout:
-            sleep(0.1)
-    finally:
-        zeroconf.close()
+    # ServiceBrowser must be cancelled before Zeroconf.close(); otherwise zeroconf
+    # leaks asyncio tasks, sockets, and threads (eventually EMFILE / errno 24).
+    with Zeroconf() as zeroconf:
+        with ServiceBrowser(zeroconf, _ELG_SERVICE, _DiscoveryListener()):
+            start = time()
+            while time() - start < timeout:
+                sleep(0.1)
     return lights

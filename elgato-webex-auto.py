@@ -40,6 +40,9 @@ except ImportError:
 PEOPLE_URL = "https://webexapis.com/v1/people"
 POLL_INTERVAL = int(os.environ.get("WEBEX_ELGATO_POLL_SECONDS", "10"))
 DISCOVER_TIMEOUT = float(os.environ.get("WEBEX_ELGATO_DISCOVER_SECONDS", "2"))
+DISCOVER_RETRY_SECONDS = float(
+    os.environ.get("WEBEX_ELGATO_DISCOVER_RETRY_SECONDS", "60")
+)
 OFF_AFTER_POLLS = int(os.environ.get("WEBEX_ELGATO_OFF_AFTER_POLLS", "3"))
 MEETING_STATUSES = frozenset({"meeting", "presenting", "call"})
 AMBIGUOUS_STATUSES = frozenset({"DoNotDisturb", "unknown"})
@@ -123,6 +126,30 @@ def _get_token(auth):
 def discover_lights():
     lights = discover_key_lights(DISCOVER_TIMEOUT)
     return list(lights) if lights else []
+
+
+class LightDiscovery:
+    """Rate-limited mDNS discovery to avoid leaking resources when lights are offline."""
+
+    def __init__(self):
+        self._lights = []
+        self._last_attempt = 0.0
+
+    def discover(self, force=False):
+        now = time.time()
+        if (
+            not force
+            and self._last_attempt
+            and now - self._last_attempt < DISCOVER_RETRY_SECONDS
+        ):
+            return list(self._lights), False
+        self._last_attempt = now
+        self._lights = discover_lights()
+        return list(self._lights), True
+
+    def invalidate(self):
+        self._lights = []
+        self._last_attempt = 0.0
 
 
 def initial_light_on(lights):
@@ -253,8 +280,9 @@ def cmd_status(_args):
 def run_monitor():
     auth, identity_mode, person_id, email = resolve_auth()
     client = requests.Session()
+    discovery = LightDiscovery()
 
-    all_lights = discover_lights()
+    all_lights, _ = discovery.discover(force=True)
     light_on = initial_light_on(all_lights)
     no_in_meeting_count = 0
     spinner = spinning_cursor()
@@ -280,25 +308,32 @@ def run_monitor():
             if status in MEETING_STATUSES:
                 no_in_meeting_count = 0
                 if not light_on:
-                    all_lights = discover_lights()
-                    t_print(
-                        "User is in a meeting -> turn light on [list: {}]".format(
-                            all_lights
+                    all_lights, attempted = discovery.discover()
+                    if attempted:
+                        t_print(
+                            "User is in a meeting -> turn light on [list: {}]".format(
+                                all_lights
+                            )
                         )
-                    )
                     if all_lights:
                         for light in all_lights:
                             light.on()
                         light_on = True
-                    else:
-                        t_print("No Key Lights found; will retry next poll.")
+                    elif attempted:
+                        t_print(
+                            "No Key Lights found; retrying discovery in {}s.".format(
+                                int(DISCOVER_RETRY_SECONDS)
+                            )
+                        )
             elif status in AMBIGUOUS_STATUSES:
                 pass
             else:
                 if light_on:
                     no_in_meeting_count += 1
                     if no_in_meeting_count > OFF_AFTER_POLLS:
-                        all_lights = discover_lights()
+                        all_lights, attempted = discovery.discover()
+                        if not attempted:
+                            continue
                         t_print(
                             "User is not in a meeting ({}) -> turn light off [list: {}]".format(
                                 status, all_lights
@@ -307,6 +342,7 @@ def run_monitor():
                         for light in all_lights:
                             light.off()
                         light_on = False
+                        discovery.invalidate()
 
         except requests.exceptions.RequestException as exc:
             t_print("HTTP error: {} — retrying in 60s".format(exc))
@@ -319,7 +355,8 @@ def run_monitor():
         except Exception as exc:
             t_print("Unexpected error: {} — retrying in 60s".format(exc))
             time.sleep(60)
-            all_lights = discover_lights()
+            discovery.invalidate()
+            all_lights, _ = discovery.discover(force=True)
             light_on = initial_light_on(all_lights)
 
         if INTERACTIVE_STDOUT:

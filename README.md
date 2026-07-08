@@ -145,6 +145,7 @@ Environment variables **override** values in `constants.py` when both are set.
 |----------|-------------|---------|
 | `WEBEX_ELGATO_POLL_SECONDS` | Delay between Webex polls (seconds) | `10` |
 | `WEBEX_ELGATO_DISCOVER_SECONDS` | mDNS discovery timeout for Key Light | `2` |
+| `WEBEX_ELGATO_DISCOVER_RETRY_SECONDS` | Minimum delay between mDNS scans when lights are missing | `60` |
 | `WEBEX_ELGATO_OFF_AFTER_POLLS` | Consecutive “not in meeting” polls before turning lights off | `3` |
 | `WEBEX_CLIENT_ID` / `WEBEX_CLIENT_SECRET` | Override integration credentials (advanced) | from `credentials.json` |
 | `WEBEX_OAUTH_SCOPE` | OAuth scope at login (must match integration) | `spark:all` |
@@ -204,6 +205,7 @@ loginctl enable-linger "$USER"
 | `Scope is invalid` during login | Enable **`spark:all`** on the integration (and **`spark:kms`** if needed). Re-run `./webex-elgato-login.sh login` — the script auto-detects common scope combinations. Override manually with `--scope 'spark:kms spark:all'`. |
 | Service exits: “No Webex authentication configured” | Run `./webex-elgato-login.sh setup`. |
 | `[237B blob data]` in journal | Harmless on older runs; current version logs plain `presence: …` lines under systemd. |
+| `Too many open files` / asyncio errors | Fixed in current code (zeroconf browser cleanup). Restart the service after updating; if the light was offline for days, discovery now backs off to once per 60s. |
 | Lights never turn on | Key Light powered on, same subnet/VLAN as this host, mDNS not blocked; try increasing `WEBEX_ELGATO_DISCOVER_SECONDS`. |
 | Status never “meeting” | For `/me`, you must approve OAuth as that user. For email/person id, scopes and ids must be correct. |
 | Lights flicker | Increase `WEBEX_ELGATO_OFF_AFTER_POLLS` or `WEBEX_ELGATO_POLL_SECONDS`. |
