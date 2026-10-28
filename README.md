@@ -145,8 +145,9 @@ Environment variables **override** values in `constants.py` when both are set.
 |----------|-------------|---------|
 | `WEBEX_ELGATO_POLL_SECONDS` | Delay between Webex polls (seconds) | `10` |
 | `WEBEX_ELGATO_DISCOVER_SECONDS` | mDNS discovery timeout for Key Light | `2` |
-| `WEBEX_ELGATO_DISCOVER_RETRY_SECONDS` | Minimum delay between mDNS scans when lights are missing | `60` |
+| `WEBEX_ELGATO_DISCOVER_RETRY_SECONDS` | Minimum delay between mDNS scans | `60` |
 | `WEBEX_ELGATO_OFF_AFTER_POLLS` | Consecutive “not in meeting” polls before turning lights off | `3` |
+| `WEBEX_ELGATO_OFFLINE_SECONDS` | If a Key Light is missing this long, turn it off when it returns unless you are in a meeting | `1800` |
 | `WEBEX_CLIENT_ID` / `WEBEX_CLIENT_SECRET` | Override integration credentials (advanced) | from `credentials.json` |
 | `WEBEX_OAUTH_SCOPE` | OAuth scope at login (must match integration) | `spark:all` |
 
@@ -209,6 +210,7 @@ loginctl enable-linger "$USER"
 | Lights never turn on | Key Light powered on, same subnet/VLAN as this host, mDNS not blocked; try increasing `WEBEX_ELGATO_DISCOVER_SECONDS`. |
 | Status never “meeting” | For `/me`, you must approve OAuth as that user. For email/person id, scopes and ids must be correct. |
 | Lights flicker | Increase `WEBEX_ELGATO_OFF_AFTER_POLLS` or `WEBEX_ELGATO_POLL_SECONDS`. |
+| Light comes back on after overnight power-off | After `WEBEX_ELGATO_OFFLINE_SECONDS` (default 30 minutes) off the LAN, the next appearance turns the light off if you are not in a meeting. Manual on while the light stays reachable is left alone. Restart the service after updating. |
 
 ## License
 

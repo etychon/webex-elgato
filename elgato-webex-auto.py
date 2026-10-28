@@ -44,6 +44,7 @@ DISCOVER_RETRY_SECONDS = float(
     os.environ.get("WEBEX_ELGATO_DISCOVER_RETRY_SECONDS", "60")
 )
 OFF_AFTER_POLLS = int(os.environ.get("WEBEX_ELGATO_OFF_AFTER_POLLS", "3"))
+OFFLINE_SECONDS = float(os.environ.get("WEBEX_ELGATO_OFFLINE_SECONDS", "1800"))
 MEETING_STATUSES = frozenset({"meeting", "presenting", "call"})
 AMBIGUOUS_STATUSES = frozenset({"DoNotDisturb", "unknown"})
 INTERACTIVE_STDOUT = sys.stdout.isatty()
@@ -148,8 +149,37 @@ class LightDiscovery:
         return list(self._lights), True
 
     def invalidate(self):
+        """Drop cached devices so the next discover() scans again.
+
+        Does not mean the lights left the network; absence tracking uses
+        actual scan results, not this cache wipe.
+        """
         self._lights = []
         self._last_attempt = 0.0
+
+
+def track_light_absence(lights, attempted, missing_since, now=None):
+    """
+    Track how long Key Lights have been missing from mDNS.
+
+    Returns (missing_since, offline_seconds).
+    ``offline_seconds`` is set when a scan finds lights after they were
+    gone for at least OFFLINE_SECONDS; otherwise None.
+    """
+    if not attempted:
+        return missing_since, None
+    if now is None:
+        now = time.time()
+    if lights:
+        offline_seconds = None
+        if missing_since is not None:
+            absent_for = now - missing_since
+            if absent_for >= OFFLINE_SECONDS:
+                offline_seconds = absent_for
+        return None, offline_seconds
+    if missing_since is None:
+        return now, None
+    return missing_since, None
 
 
 def initial_light_on(lights):
@@ -277,6 +307,12 @@ def cmd_status(_args):
         print(line)
 
 
+def _turn_lights_off(all_lights, reason):
+    t_print("{} [list: {}]".format(reason, all_lights))
+    for light in all_lights:
+        light.off()
+
+
 def run_monitor():
     auth, identity_mode, person_id, email = resolve_auth()
     client = requests.Session()
@@ -284,6 +320,8 @@ def run_monitor():
 
     all_lights, _ = discovery.discover(force=True)
     light_on = initial_light_on(all_lights)
+    missing_since = None if all_lights else time.time()
+    pending_power_restore_off = False
     no_in_meeting_count = 0
     spinner = spinning_cursor()
     last_logged_status = None
@@ -305,17 +343,40 @@ def run_monitor():
                 t_print("presence:", status)
                 last_logged_status = status
 
+            # Scan on a timer even while idle so last-seen stays fresh while
+            # the light is on the LAN (manual on must not look like a return).
+            all_lights, attempted = discovery.discover()
+            missing_since, offline_seconds = track_light_absence(
+                all_lights, attempted, missing_since
+            )
+            if offline_seconds is not None:
+                pending_power_restore_off = True
+                t_print(
+                    "Key Light reachable again after {:.0f}s offline.".format(
+                        offline_seconds
+                    )
+                )
+
+            if pending_power_restore_off:
+                if status in MEETING_STATUSES:
+                    pending_power_restore_off = False
+                elif status not in AMBIGUOUS_STATUSES and all_lights:
+                    _turn_lights_off(
+                        all_lights,
+                        "Key Light back after long absence -> turn light off",
+                    )
+                    light_on = False
+                    pending_power_restore_off = False
+
             if status in MEETING_STATUSES:
                 no_in_meeting_count = 0
                 if not light_on:
-                    all_lights, attempted = discovery.discover()
-                    if attempted:
+                    if all_lights:
                         t_print(
                             "User is in a meeting -> turn light on [list: {}]".format(
                                 all_lights
                             )
                         )
-                    if all_lights:
                         for light in all_lights:
                             light.on()
                         light_on = True
@@ -331,18 +392,23 @@ def run_monitor():
                 if light_on:
                     no_in_meeting_count += 1
                     if no_in_meeting_count > OFF_AFTER_POLLS:
-                        all_lights, attempted = discovery.discover()
-                        if not attempted:
-                            continue
-                        t_print(
-                            "User is not in a meeting ({}) -> turn light off [list: {}]".format(
-                                status, all_lights
+                        if all_lights:
+                            _turn_lights_off(
+                                all_lights,
+                                "User is not in a meeting ({}) -> turn light off".format(
+                                    status
+                                ),
                             )
-                        )
-                        for light in all_lights:
-                            light.off()
-                        light_on = False
-                        discovery.invalidate()
+                            light_on = False
+                            discovery.invalidate()
+                        elif attempted:
+                            t_print(
+                                "User is not in a meeting ({}) -> turn light off [list: {}]".format(
+                                    status, all_lights
+                                )
+                            )
+                            light_on = False
+                            discovery.invalidate()
 
         except requests.exceptions.RequestException as exc:
             t_print("HTTP error: {} — retrying in 60s".format(exc))
@@ -357,6 +423,11 @@ def run_monitor():
             time.sleep(60)
             discovery.invalidate()
             all_lights, _ = discovery.discover(force=True)
+            missing_since, offline_seconds = track_light_absence(
+                all_lights, True, missing_since
+            )
+            if offline_seconds is not None:
+                pending_power_restore_off = True
             light_on = initial_light_on(all_lights)
 
         if INTERACTIVE_STDOUT:
